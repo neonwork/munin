@@ -1,10 +1,12 @@
 #! /usr/bin/perl
-# Munin node that presents as many virtual hosts, plugins & fields 
-# as needed to be able to : 
+# Munin node that presents as many virtual hosts, plugins & fields
+# as needed to be able to:
 # - emulate a HUGE network to stress the munin-master server
-# - serve as a basis for protocol debugging 
+# - serve as a basis for protocol debugging
 #
-# Copyright (C) 2010 Steve Schnepp under the GPLv2
+# Copyright (C) 2010 Steve Schnepp
+#
+# License: GPLv2
 
 use strict;
 use warnings;
@@ -43,7 +45,7 @@ my $arg_ret = GetOptions(
 	"startint-port|p=i" => \$starting_port,
 
 	"listen=s" => \$listen,
-	
+
 	"update-rate=i" => \$update_rate,
 	"spoolfetch" => \$spoolfetch,
 	"spoolfetch-rate=i" => \$spoolfetch_rate,
@@ -66,19 +68,19 @@ Options:
     -v --nb-servers-port <int> Number of virtual servers per port [1]
     -p --start-port <int>      Starting TCP listening port [24949]
 
-    -n --nb-plugins <int>     Number of plugins per server [30] 
+    -n --nb-plugins <int>     Number of plugins per server [30]
     -f --nb-fields  <int>     Number of fields per plugins [5]
     --update-rate <int>       Update rate of plugins (in seconds) [10]
 
-       --listen    <host>     Which IP to bind [localhost]. 
+       --listen    <host>     Which IP to bind [localhost].
                               Use '' or '*' to bind to every interface.
 
     --spoolfetch              Be spoolfetch capable
     --starting-epoch          Starting epoch: no data will available before.
-                               Can be relative to now if negative [-3600] 
+                               Can be relative to now if negative [-3600]
 
     -d --dump                 Only dump a generated munin.conf part [no]
-       --debug                Print debug information [no] 
+       --debug                Print debug information [no]
 
 };
 	exit 0;
@@ -102,7 +104,7 @@ if ($dump_config) {
 			print "\n";
 		}
 	}
-	
+
 	# Only dump config
 	exit;
 }
@@ -201,21 +203,21 @@ sub service
 			print $client ".\n";
 		} elsif ($line =~ m/^spoolfetch (\d+)/) {
 			my $timestamp = $1;
+			print "asked $timestamp, " if $is_debug;
+			my $now = time;
 
 			# Cannot start before $starting_epoch
-			print "asked $timestamp, " if $is_debug;
-			$timestamp = ($timestamp < $starting_epoch) ? $starting_epoch : $timestamp;
-			print "starting at $starting_epoch, using $timestamp, \n" if $is_debug;
+			$timestamp = $starting_epoch if ($timestamp < $starting_epoch);
+			print "starting at $starting_epoch\n" if $is_debug;
 
 			# Only send something every $spoolfetch_rate * $update_rate
-			if ( $timestamp > time - $spoolfetch_rate * $update_rate) {
-				print $client ".\n";
-				return;
+			if ( $timestamp > $now - $spoolfetch_rate * $update_rate) {
+				goto END_SPOOL_CMD;
 			}
 
 			# Sends spools strictly > LastSpooled
 			for (my $epoch = ($timestamp - $timestamp % $update_rate + $update_rate);
-				$epoch < time; $epoch += $update_rate) { 
+				$epoch < time; $epoch += $update_rate) {
 			for (my $plugin_number = 0; $plugin_number < $nb_plugins; $plugin_number ++) {
 				my $plugin_name = get_service($plugin_number);
 				print $client "multigraph $plugin_name\n";
@@ -232,6 +234,7 @@ sub service
 				}
 			}
 		}
+	END_SPOOL_CMD:
 			print $client ".\n";
 		} elsif ($line =~ m/^quit/) {
 			return;
@@ -250,15 +253,16 @@ sub service
 	}
 }
 
-sub get_plugin_number 
+sub get_plugin_number
 {
 	my $plugin_name = shift;
-	return $services{$plugin_name};
+	my $plugin_number = $services{$plugin_name};
+	return $plugin_number || 0;
 }
 
-sub debug 
+sub debug
 {
-	print join(" ", @_) . "\n" if $is_debug; 
+	print join(" ", @_) . "\n" if $is_debug;
 }
 
 sub _get_from_array

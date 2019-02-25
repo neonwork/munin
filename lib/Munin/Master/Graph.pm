@@ -26,6 +26,8 @@ use warnings;
 
 package Munin::Master::Graph;
 
+use English qw(-no_match_vars);
+
 use Time::HiRes;
 
 use POSIX;
@@ -37,15 +39,12 @@ use Munin::Common::Logger;
 use File::Basename;
 use Data::Dumper;
 
-Munin::Common::Logger::configure( level => 'debug', output => 'screen');
-
 # Hash of available palettes
 my %PALETTE;
-# Array of actuall colours to use
+# Array of colours to use
 my @COLOUR;
 
 {
-	no warnings;
 	# This is the old munin palette. Note that it lacks contrast.
 	$PALETTE{'old'} = [
 		qw(22ff22 0022ff ff0000 00aaaa ff00ff
@@ -87,7 +86,7 @@ my %resolutions = (
 	"day"   => "300",
 	"week"  => "1500",
 	"month" => "7200",
-	"year"  => "86400"
+	"year"  => "86400",
 );
 
 my %CONTENT_TYPES = (
@@ -106,7 +105,7 @@ my %CONTENT_TYPES = (
 sub is_ext_handled
 {
 	my $ext = shift;
-	return undef unless $ext;
+	return unless $ext;
 	return defined $CONTENT_TYPES{uc($ext)};
 }
 
@@ -151,15 +150,20 @@ sub handle_request
 	$time = "pinpoint" if $time =~ m/^pinpoint/;
 
 	# Ok, now SQL is needed to go further
-	use DBI;
-	my $datafilename = $ENV{MUNIN_DBURL} || "$Munin::Common::Defaults::MUNIN_DBDIR/datafile.sqlite";
 	# Note that we reconnect for _each_ request. This is to avoid old data when the DB "rotates"
-	my $dbh = DBI->connect("dbi:SQLite:dbname=$datafilename","","") or die $DBI::errstr;
+	use Munin::Master::Update;
+	my $dbh = Munin::Master::Update::get_dbh();
 
 	DEBUG "($graph_path, $time, $start, $end, $format)\n";
 
 	# Find the service to display
 	my $sth_url = $dbh->prepare_cached("SELECT id, type FROM url WHERE path = ?");
+	if (not defined($sth_url)) {
+		# potential cause: permission problem
+		my $msg = "Failed to access database: " . $DBI::errstr;
+		WARNING "[WARNING] $msg";
+		die $msg;
+	}
 	$sth_url->execute($graph_path);
 	my ($id, $type) = $sth_url->fetchrow_array;
 
@@ -181,7 +185,7 @@ sub handle_request
 
 	DEBUG "found node=$id, type=$type";
 
-	# Here's the most common case : only plain plugins
+	# Here's the most common case: only plain plugins
 	my $sth;
 
 	$sth = $dbh->prepare_cached("SELECT value FROM service_attr WHERE id = ? and name = ?");
@@ -231,12 +235,12 @@ sub handle_request
 			ne.value,
 			sm.value as sum,
 			st.value as stack,
-                        (
-                                select hn.id
-                                from ds hn
-                                JOIN ds_attr hn_attr ON hn.service_id = ds.service_id AND hn_attr.value = ds.name and hn_attr.name = 'negative'
-                                where hn.service_id = ds.service_id
-                        ) as negative_id,
+			(
+				select hn.id
+				from ds hn
+				JOIN ds_attr hn_attr ON hn_attr.id = hn.id AND hn_attr.value = ds.name and hn_attr.name = 'negative'
+				where hn.service_id = ds.service_id
+			) as negative_id,
 			rl.value as last_epoch,
 			'dummy' as dummy
 		FROM ds
@@ -268,8 +272,6 @@ sub handle_request
 	my @rrd_legend;
 	my @rrd_sum;
 
-	my %negatives;
-
 	push @rrd_gfx, "COMMENT:\\t";
 	push @rrd_gfx, "COMMENT:Cur\\t";
 	push @rrd_gfx, "COMMENT:Min\\t";
@@ -297,7 +299,7 @@ sub handle_request
 		# Note that we do *NOT* provide any defaults for those
 		# $_rrdXXXX vars. Defaults will be done by munin-update.
 		#
-		# This will :
+		# This will:
 		# 	- have only 1 reference on default values
 		# 	- reduce the size of the CGI part, which is good for
 		# 	  security (& sometimes performances)
@@ -306,6 +308,9 @@ sub handle_request
 		$_printf = $graph_printf unless defined $_printf;
 		$_printf .= "%s";
 
+		# The label is the fieldname if not present
+		$_label = $_rrdname unless $_label;
+
 		DEBUG "rrdname: $_rrdname";
 
 		# rrdtool fails on unescaped colons found in its input data
@@ -313,7 +318,7 @@ sub handle_request
 
 		# Handle .sum
 		if ($_sum) {
-			# .sum is just a alias + cdef shortcut, an exemple is :
+			# .sum is just a alias + cdef shortcut, an example is:
 			#
 			# inputtotal.sum \
 			#            ups-5a:snmp_ups_ups-5a_current.inputcurrent \
@@ -531,16 +536,16 @@ sub handle_request
 		'--font', "TITLE:$font_size_title:Sans",
 		'--font', "DEFAULT:$font_size_default",
 		'--font', "LEGEND:$font_size_legend",
-                # Colors coordinated with CSS.
-                '--color', 'BACK#F0F0F0',   # Area around the graph
-                '--color', 'FRAME#F0F0F0',  # Line around legend spot
-                '--color', 'CANVAS#FFFFFF', # Graph background, max contrast
-                '--color', 'FONT#666666',   # Some kind of gray
-                '--color', 'AXIS#CFD6F8',   # And axis like html boxes
-                '--color', 'ARROW#CFD6F8',  # And arrow, ditto.
+		# Colors coordinated with CSS.
+		'--color', 'BACK#F0F0F0',   # Area around the graph
+		'--color', 'FRAME#F0F0F0',  # Line around legend spot
+		'--color', 'CANVAS#FFFFFF', # Graph background, max contrast
+		'--color', 'FONT#666666',   # Some kind of gray
+		'--color', 'AXIS#CFD6F8',   # And axis like html boxes
+		'--color', 'ARROW#CFD6F8',  # And arrow, ditto.
 
-                '--width', $width,
-                '--height', $height,
+		'--width', $width,
+		'--height', $height,
 
 		"--border", "0",
 	);
@@ -606,7 +611,7 @@ sub handle_request
 	{
 		my $buffer;
 		# No buffering wanted when sending the file
-		local $| = 1;
+		local $OUTPUT_AUTOFLUSH = 1;
 		while (sysread($rrd_fh, $buffer, 40 * 1024)) { print $buffer; }
 	}
 
@@ -658,27 +663,6 @@ sub RRDs_graph {
 	# when called the second time.
 	#
 	return RRDs::graph(@_);
-
-	use IPC::Open3;
-	use IO::String;
-
-	# We just revert to spawning a full featured rrdtool cmd for now.
-	my $chld_out = new IO::String();
-	my $chld_in = new IO::String();
-	my $chld_err = new IO::String();
-
-	local $ENV{PATH} = $1 if $ENV{PATH} =~ /(.*)/;
-
-	my $chld_pid = open3($chld_out, $chld_in, $chld_err, "rrdtool", "graphv", @_);
-
-	DEBUG "[DEBUG] RRDs_graph(chld_out=".${$chld_out->string_ref}.")";
-	DEBUG "[DEBUG] RRDs_graph(chld_err=".${$chld_err->string_ref}.")";
-
-	waitpid( $chld_pid, 0 );
-
-	my $child_exit_status = ($? >> 8);
-
-	return $child_exit_status;
 }
 
 sub RRDs_graph_or_dump {
@@ -721,7 +705,7 @@ sub RRDs_graph_or_dump {
 		# Ignore the arg
 	}
 	# Now we have to fetch the textual values
-        DEBUG "[DEBUG] \n\nrrdtool xport '" . join("' \\\n\t'", @xport) . "'\n";
+	DEBUG "[DEBUG] \n\nrrdtool xport '" . join("' \\\n\t'", @xport) . "'\n";
 	my ($start, $end, $step, $nb_vars, $columns, $values) = RRDs::xport(@xport);
 	if ($fileext eq "CSV") {
 		print $out_fh '"epoch", "' . join('", "', @{ $columns } ) . "\"\n";
@@ -770,6 +754,7 @@ sub RRDs_graph_or_dump {
 		print $out_fh "        \"columns\": " . (scalar @$columns) . ",\n";
 		print $out_fh "        \"legend\": [\n";
 		my $index = 0;
+		## no critic qw(ControlStructures::ProhibitMutatingListFunctions)
 		my @json_columns = map { s/\\l$//; $_; } @{ $columns }; # Remove trailing "\l"
 		for my $column ( @json_columns ) {
 			print $out_fh "            \"$column\"";

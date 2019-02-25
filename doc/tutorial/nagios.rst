@@ -48,7 +48,7 @@ The ``nagios.cmd`` is a named pipe on which Nagios accepts external input.
 Configuring NSCA, server side
 -----------------------------
 
-NSCA is run through some kind of (x)inetd. 
+NSCA is run through some kind of (x)inetd.
 
 Using inetd
 ++++++++++++
@@ -129,7 +129,7 @@ Sending messages from Munin
 ===========================
 
 Messages are sent by :ref:`munin-limits <munin-limits>` based on the state of a monitored data source:
-``OK``, ``Warning``, ``Critical`` and ``Unkown`` (O/W/C/U).
+``OK``, ``Warning``, ``Critical`` and ``Unknown`` (O/W/C/U).
 
 Configuring munin.conf
 ----------------------

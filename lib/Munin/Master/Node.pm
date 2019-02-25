@@ -17,6 +17,7 @@ use Munin::Common::Logger;
 use Time::HiRes qw( gettimeofday tv_interval );
 use IO::Socket::INET6;
 
+use English qw(-no_match_vars);
 my $config = Munin::Master::Config->instance()->{config};
 
 # Quick version, to enable "DEBUG ... if $debug" constructs
@@ -36,7 +37,7 @@ sub new {
         reader  => undef,
         pid     => undef,
         writer  => undef,
-        master_capabilities => "multigraph dirtyconfig",
+        master_capabilities => "multigraph",
         io_timeout => 120,
 	configref => $configref,
     };
@@ -75,7 +76,7 @@ sub _do_connect {
     # If address is only "ssh://host/" $params will not get set
     $params = "" unless defined $params;
 
-    # If the scheme is not defined, it's a plain host. 
+    # If the scheme is not defined, it's a plain host.
     # Prefix it with munin:// to be able to parse it like others
     $uri = new URI("munin://" . $url) unless $uri->scheme;
     LOGCROAK("[FATAL] '$url' is not a valid address!") unless $uri->scheme;
@@ -83,9 +84,9 @@ sub _do_connect {
     if ($uri->scheme eq "munin") {
         $self->{reader} = $self->{writer} = IO::Socket::INET6->new(
 		PeerAddr  => $uri->host,
-		PeerPort  => $self->{port} || 4949,
+		PeerPort  => $self->{port} || $uri->{port},
 		LocalAddr => $config->{local_address},
-		Proto     => 'tcp', 
+		Proto     => 'tcp',
 		MultiHomed => 1,
 		Timeout   => $config->{timeout}
 	);
@@ -108,6 +109,9 @@ sub _do_connect {
 	    # Open a triple pipe
    	    use IPC::Open3;
 
+	    # PATH has to be clean
+	    local $ENV{PATH} = '/usr/sbin:/usr/bin:/sbin:/bin';
+
 	    $self->{reader} = new IO::Handle();
 	    $self->{writer} = new IO::Handle();
 	    $self->{stderr} = new IO::Handle();
@@ -123,6 +127,9 @@ sub _do_connect {
 	    # Open a triple pipe
    	    use IPC::Open3;
 
+	    # PATH has to be clean
+	    local $ENV{PATH} = '/usr/sbin:/usr/bin:/sbin:/bin';
+
 	    $self->{reader} = new IO::Handle();
 	    $self->{writer} = new IO::Handle();
 	    $self->{stderr} = new IO::Handle();
@@ -137,7 +144,7 @@ sub _do_connect {
 
     # check all the lines until we find one that matches the expected
     # greeting; ignore anything that doesn't look like it as long as
-    # there is output. This allows to accept SSH connections where
+    # there is output. This allows one to accept SSH connections where
     # lastlog or motd is used.
     until(defined($self->{node_name})) {
 	my $greeting = $self->_node_read_single();
@@ -175,7 +182,7 @@ sub _run_starttls_if_required {
         read_func    => sub { _node_read_single($self) },
         tls_ca_cert  => $config->{tls_ca_certificate},
         tls_cert     => $config->{tls_certificate},
-        tls_paranoia => $tls_requirement, 
+        tls_paranoia => $tls_requirement,
         tls_priv     => $config->{tls_private_key},
         tls_vdepth   => $config->{tls_verify_depth},
         tls_verify   => $config->{tls_verify_certificate},
@@ -212,7 +219,7 @@ sub _do_close {
 
 sub negotiate_capabilities {
     my ($self) = @_;
-    # Please note: Sone of the capabilities are asymetrical.  Each
+    # Please note: Sone of the capabilities are asymmetrical.  Each
     # side simply announces which capabilities they have, and then the
     # other takes advantage of the capabilities it understands (or
     # dumbs itself down to the counterparts level of sophistication).
@@ -266,154 +273,6 @@ sub list_plugins {
 }
 
 
-sub parse_service_config {
-    my ($self, $service, $lines) = @_;
-
-    my $errors;
-    my $correct;
-
-    my $plugin = $service;
-
-    my $nodedesignation = $self->{host}."/".$self->{address}."/".$self->{port};
-
-    my $global_config = {
-	multigraph => [],
-    };
-    my $data_source_config = {};
-    my @graph_order = ( );
-
-    # Pascal style nested subroutine
-    local *new_service = sub {
-	push @{$global_config->{multigraph}}, $service;
-	$global_config->{$service} = [];
-	$data_source_config->{$service} = {};
-    };
-
-
-   local *push_graphorder = sub {
-		my ($oldservice) = @_;
-
-		# We always appends the field names in config order to any
-		# graph_order given.
-		# Note that this results in duplicates in the internal state
-		# for @graph_order.
-
-		if (@graph_order) {
-			foreach (@{$global_config->{$oldservice}}) {
-				if ( $_->[0] eq 'graph_order' ) {
-					# append to a given graph_order
-					$_->[1] = _merge_into_str_no_dup($_->[1], @graph_order);
-
-					@graph_order = ( );
-					return;
-				}
-			}
-			push @{$global_config->{$oldservice}}, ['graph_order', join(' ', @graph_order)];
-		}
-		@graph_order = ( );
-	};
-
-
-    DEBUG "[DEBUG] Now parsing config output from plugin $plugin on "
-	.$self->{host};
-
-    new_service($service);
-
-    # every 'N' has the same value. Should not take parsing time into the equation
-    my $now = time;
-
-    for my $line (@$lines) {
-
-	DEBUG "[CONFIG from $plugin] $line" if $debug;
-
-	if ($line =~ /\# timeout/) {
-	    die "[ERROR] Timeout error on $nodedesignation during fetch of $plugin. \n";
-	}
-
-        next unless $line;
-        next if $line =~ /^\#/;
-
-	if ($line =~ m{\A multigraph \s+ (.+) }xms) {
-	    push_graphorder($service);
-
-	    $service = $1;
-
-	    if ($service eq 'multigraph') {
-		ERROR "[ERROR] SERVICE can't be named \"$service\" in plugin $plugin on ".$self->{host}."/".$self->{address}."/".$self->{port};
-                $errors++;
-                last;
-	    }
-            if ($service =~ /(^\.|\.$|\.\.)/) {
-                ERROR "[ERROR] SERVICE \"$service\" contains dots in wrong places in plugin $plugin on ".$self->{host}."/".$self->{address}."/".$self->{port};
-                $errors++;
-                last;
-            }
-            if ($service !~ m/^[-\w.:.]+$/) {
-                ERROR "[ERROR] SERVICE \"$service\" contains weird characters in plugin $plugin on ".$self->{host}."/".$self->{address}."/".$self->{port};
-                $errors++;
-                last;
-            }
-	    new_service($service) unless $global_config->{$service};
-	    DEBUG "[CONFIG multigraph $plugin] Service is now $service";
-	    $correct++;
-	}
-	elsif ($line =~ m{\A ([^\s\.]+) \s+ (.+?) \s* $}xms) {
-	    $correct++;
-
-	    my $label = $self->_sanitise_fieldname($1);
-
-	    # add to config if not already here
-	    push @{$global_config->{$service}}, [$label, $2]
-	    	unless grep { $_->[0] eq $label }  @{$global_config->{$service}};
-            DEBUG "[CONFIG graph global $plugin] $service->$label = $2" if $debug;
-        } elsif ($line =~ m{\A ([^\.]+)\.value \s+ (.+?) \s* $}xms) {
-	    $correct++;
-	    # Special case for dirtyconfig
-            my ($ds_name, $value, $when) = ($1, $2, $now);
-            
-	    $ds_name = $self->_sanitise_fieldname($ds_name);
-	    if ($value =~ /^(\d+):(.+)$/) {
-		$when = $1;
-		$value = $2;
-	    }
-            DEBUG "[CONFIG dirtyconfig $plugin] Storing $value from $when in $ds_name";
-
-	    # Creating the datastructure if not created already
-            $data_source_config->{$service}{$ds_name} ||= {};
-            $data_source_config->{$service}{$ds_name}{when} ||= [];
-            $data_source_config->{$service}{$ds_name}{value} ||= [];
-	
-	    # Saving the timed value in the datastructure
-	    push @{$data_source_config->{$service}{$ds_name}{when}}, $when;
-	    push @{$data_source_config->{$service}{$ds_name}{value}}, $value;
-        }
-	elsif ($line =~ m{\A ([^\.]+)\.([^\s]+) \s+ (.+?) \s* $}xms) {
-	    $correct++;
-	    
-            my ($ds_name, $ds_var, $ds_val) = ($1, $2, $3);
-            $ds_name = $self->_sanitise_fieldname($ds_name);
-            $data_source_config->{$service}{$ds_name} ||= {};
-            $data_source_config->{$service}{$ds_name}{$ds_var} = $ds_val;
-            DEBUG "[CONFIG dataseries $plugin] $service->$ds_name.$ds_var = $ds_val" if $debug;
-            push ( @graph_order, $ds_name ) if $ds_var eq 'label';
-        }
-	else {
-	    $errors++;
-	    DEBUG "[DEBUG] Protocol exception: unrecognized line '$line' from $plugin on $nodedesignation.\n";
-        }
-    }
-
-    if ($errors) {
-	WARN "[WARNING] $errors lines had errors while $correct lines were correct in data from 'config $plugin' on $nodedesignation";
-    }
-
-    $self->_validate_data_sources($data_source_config);
-
-    push_graphorder($service);
-
-    return (global => $global_config, data_source => $data_source_config);
-}
-
 
 sub fetch_service_config {
 	my ($self, $service, $uw_handle_config) = @_;
@@ -431,7 +290,7 @@ sub fetch_service_config {
 	my $elapsed = tv_interval($t0);
 
 	my $nodedesignation = $self->{host}."/".$self->{address}."/".$self->{port};
-	DEBUG "[DEBUG] config: $elapsed sec for '$service' on $nodedesignation";
+	INFO "config: $elapsed sec for '$service' on $nodedesignation, read ". (scalar @$lines) . " lines" ;
 
 	$service = $self->_sanitise_plugin_name($service);
 
@@ -441,9 +300,17 @@ sub fetch_service_config {
 
 	my $last_timestamp = 0;
 	for my $line (@$lines) {
+		DEBUG "handle '$line'";
 		if ($line =~ m{\A multigraph \s+ (.+) }xms) {
+			if (@$lines_block) {
+				# Flush the previous block
+				$last_timestamp = $uw_handle_config->($local_service_name, $now, $lines_block, $last_timestamp);
+				$lines_block = [];
+			}
+			# Now we are in the new block
 			$local_service_name = $1;
-			$last_timestamp = $uw_handle_config->($local_service_name, $now, $lines_block, $last_timestamp);
+			$local_service_name = $self->_sanitise_plugin_name($local_service_name);
+
 			next;
 		}
 
@@ -457,138 +324,24 @@ sub fetch_service_config {
 }
 
 sub spoolfetch {
-    my ($self, $timestamp) = @_;
+    my ($self, $timestamp, $uw_handle_config) = @_;
 
     DEBUG "[DEBUG] Fetching spooled services since $timestamp (" . localtime($timestamp) . ")";
     $self->_node_write_single("spoolfetch $timestamp\n");
 
     # The whole stuff in one fell swoop.
-    my $lines = $self->_node_read();
-
-    # using the multigraph parsing. 
-    # Using "__root__" as a special plugin name. 
-    return $self->parse_service_config("__root__", $lines);
-}
-
-sub _validate_data_sources {
-    my ($self, $all_data_source_config) = @_;
-
-    my $nodedesignation = $self->{host}."/".$self->{address}.":".$self->{port};
-
-    for my $service (keys %$all_data_source_config) {
-	my $data_source_config = $all_data_source_config->{$service};
-
-	for my $ds (keys %$data_source_config) {
-	    if (!defined $data_source_config->{$ds}{label}) {
-		ERROR "Missing required attribute 'label' for data source '$ds' in service $service on $nodedesignation";
-		$data_source_config->{$ds}{label} = 'No .label provided';
-		$data_source_config->{$ds}{extinfo} = "NOTE: The plugin did not provide any label for the data source $ds.  It is in need of fixing.";
-	    }
-	}
-    }
-}
-
-
-sub parse_service_data {
-    my ($self, $service, $lines) = @_;
-
-    my $plugin = $service;
-    my $errors = 0;
-    my $correct = 0;
-
-    my $nodedesignation = $self->{host}."/".$self->{address}.":".$self->{port};
-
-    my %values = (
-	$service => {},
-    );
-
-    DEBUG "[DEBUG] Now parsing fetch output from plugin $plugin on ".
-	$nodedesignation;
-
-    # every 'N' has the same value. Should not take parsing time into the equation
     my $now = time;
+    my $last_timestamp = $timestamp;
+    my $callback = sub {
+	    my ($plugin, $data) = @_;
+	    $last_timestamp = $uw_handle_config->($plugin, $now, $data, $last_timestamp)
+    };
+    my $lines = $self->_node_read($callback);
 
-    for my $line (@$lines) {
-
-	DEBUG "[FETCH from $plugin] $line";
-
-	if ($line =~ /\# timeout/) {
-	    die "[WARNING] Timeout in fetch from '$plugin' on ".
-		$nodedesignation;
-	}
-
-        next unless $line;
-        next if $line =~ /^\#/;
-
-	if ($line =~ m{\A multigraph \s+ (.+) }xms) {
-	    $service = $1;
-            if ($service =~ /(^\.|\.$|\.\.)/) {
-                ERROR "[ERROR] SERVICE \"$service\" contains dots in wrong places in plugin $plugin on ".$self->{host}."/".$self->{address}."/".$self->{port};
-                $errors++;
-                last;
-            }
-            if ($service !~ m/^[-\w.:.]+$/) {
-                ERROR "[ERROR] SERVICE \"$service\" contains weird characters in plugin $plugin on ".$self->{host}."/".$self->{address}."/".$self->{port};
-                $errors++;
-                last;
-            }
-	    $values{$service} = {};
-
-	    if ($service eq 'multigraph') {
-                $errors++;
-		ERROR "[ERROR] SERVICE can't be named \"$service\" in plugin $plugin on ".
-		    $nodedesignation;
-                last;
-	    }
-	    $correct++;
-	}
-	elsif ($line =~ m{\A ([^\.]+)\.value \s+ ([\S:]+) }xms) {
-            my ($data_source, $value, $when) = ($1, $2, $now);
-
-	    $correct++;
-
-            $data_source = $self->_sanitise_fieldname($data_source);
-
-	    DEBUG "[FETCH from $plugin] Storing $value in $data_source";
-
-	    if ($value =~ /^(\d+):(.+)$/) {
-		$when = $1;
-		$value = $2;
-	    }
-
-	    $values{$service}{$data_source} ||= { when => [], value => [], };
-
-	    push @{$values{$service}{$data_source}{when}}, $when;
-	    push @{$values{$service}{$data_source}{value}}, $value;
-        }
-	elsif ($line =~ m{\A ([^\.]+)\.extinfo \s+ (.+?) \s* $}xms) {
-	    # Extinfo is used in munin-limits
-            my ($data_source, $value) = ($1, $2);
-	    
-	    $correct++;
-
-            $data_source = $self->_sanitise_fieldname($data_source);
-
-	    $values{$service}{$data_source} ||= {};
-
-	    $values{$service}{$data_source}{extinfo} = $value;
-
-	}
-        else {
-	    $errors++;
-            DEBUG "[DEBUG] Protocol exception while fetching '$service' from $plugin on $nodedesignation: unrecognized line '$line'";
-	    next;
-        }
-    }
-    if ($errors) {
-	my $percent = ($errors / ($errors + $correct)) * 100; 
-	$percent = sprintf("%.2f", $percent);
-	WARN "[WARNING] $errors lines had errors while $correct lines were correct ($percent%) in data from 'fetch $plugin' on $nodedesignation";
-    }
-
-    return %values;
+    # using the multigraph parsing.
+    # Using "__root__" as a special plugin name.
+    return $last_timestamp;
 }
-
 
 sub fetch_service_data {
     my ($self, $plugin, $uw_handle_data) = @_;
@@ -597,13 +350,14 @@ sub fetch_service_data {
 
     $self->_node_write_single("fetch $plugin\n");
 
-    my $lines = $self->_node_read_fast();
-    
+    my $lines = $self->_node_read($uw_handle_data);
+
     my $elapsed = tv_interval($t0);
     my $nodedesignation = $self->{host}."/".$self->{address}."/".$self->{port};
-    DEBUG "[DEBUG] data: $elapsed sec for '$plugin' on $nodedesignation";
+    INFO "data: $elapsed sec for '$plugin' on $nodedesignation";
 
-    return $uw_handle_data->($lines);
+    $plugin = $self->_sanitise_fieldname($plugin);
+    return $uw_handle_data->($plugin, $lines);
 }
 
 sub quit {
@@ -613,7 +367,7 @@ sub quit {
     $self->_node_write_single("quit \n");
     my $elapsed = tv_interval($t0);
     my $nodedesignation = $self->{host}."/".$self->{address}."/".$self->{port};
-    DEBUG "[DEBUG] quit: $elapsed sec on $nodedesignation";
+    INFO "quit: $elapsed sec on $nodedesignation";
 
     return 1;
 }
@@ -623,7 +377,7 @@ sub _sanitise_plugin_name {
     my ($self, $name) = @_;
 
     $name =~ s/[^_A-Za-z0-9]/_/g;
-    
+
     return $name;
 }
 
@@ -661,86 +415,77 @@ sub _node_write_single {
 
 sub _node_read_single {
     my ($self) = @_;
-    my $res = undef;
 
-    my $timed_out = !do_with_timeout($self->{io_timeout}, sub {
-      if ($self->{tls} && $self->{tls}->session_started()) {
-          $res = $self->{tls}->read();
-      }
-      else {
+RESTART:
+
+    my $res;
+    my $tls = $self->{tls};
+    if ($tls && $tls->session_started()) {
+        $res = $tls->read();
+    } else {
           $res = readline $self->{reader};
-      }
-      # Remove \r *and* \n. Normally only one, since we read line per line.
-      $res =~ tr/\x{d}\x{a}//d if defined $res;
-      return 1;
-    });
-    if ($timed_out) {
-        LOGCROAK "[FATAL] Socket read timed out to ".$self->{host}.
-	    ".  Terminating process.";
     }
+
     if (!defined($res)) {
 	# Probable socket not open.  Why are we here again then?
-	# aren't we supposed to be in "do in session"?
 	LOGCROAK "[FATAL] Socket read from ".$self->{host}." failed.  Terminating process.";
     }
+
+    # Remove \r *and* \n
+    # Normally only one, since we read line per line.
+    # .. It has to be done in reverse order as we remove \n first, then \r.
+    $res =~ s/\n$// if defined $res;
+    $res =~ s/\r$// if defined $res;
+
+    # If the line is empty, just read another line
+    goto RESTART unless $res;
+
     DEBUG "[DEBUG] Reading from socket to ".$self->{host}.": \"$res\"." if $debug;
+
     return $res;
 }
 
-sub _node_read_fast {
-	my ($self) = @_;
-
-	# We cannot bypass the IO if using TLS
-	# so just reverting to normal mode.
-	return _node_read(@_) if $self->{tls};
-
-	# Disable Buffering here, to be able to use sysread()
-	local $| = 1;
-
-	my $io_src = $self->{reader};
-        my $buf;
-    	my $offset = 0;
-        while (my $read_len = sysread($io_src, $buf, 4096, $offset)) {
-		$offset += $read_len;
-
-		# Stop when we read a \n.\n
-		# ... No need to have a full regex : simple index()
-		my $start_offset = $offset - $read_len - 3;
-		$start_offset = 0 if $start_offset < 0;
-		last if index($buf, "\n.\n", $start_offset) >= 0;
-
-		# if empty, the client only sends a plain ".\n"
-		last if $buf eq ".\n";
-        }
-
-	# Remove the last line that only contains ".\n"
-	$buf =~ s/\.\n$//;
-
-	return [ split(/\n/, $buf) ];
-}
-
 sub _node_read {
-    my ($self) = @_;
+    my ($self, $callback) = @_;
+
+    my $current_plugin;
     my @array = ();
 
-    my $line = $self->_node_read_single();
-    while($line ne ".") {
-        push @array, $line;
-        $line = $self->_node_read_single();
+    while(my $line = $self->_node_read_single()) {
+	DEBUG "_node_read(): $line";
+	last if $line eq ".";
+
+	# The trigger is always "multigraph ..."
+	# We do callback the callback if defined
+	unless ($callback && $line =~ m{\A multigraph \s+ (.+) }xms) {
+		# Regular line
+		push @array, $line;
+	} else {
+		my $new_plugin = $1;
+
+		# Callback is called with ($plugin, $data) to flush the previous plugins
+		# ... if there's already a plugin
+		if ($current_plugin) {
+			DEBUG "callback->($current_plugin, " . Dumper(\@array) . ")";
+			$callback->($current_plugin, \@array);
+		}
+
+		# Handled the old one. Moving to the new one.
+		$new_plugin = $self->_sanitise_plugin_name($new_plugin);
+		$current_plugin = $new_plugin;
+		@array = ();
+	}
     }
 
-    DEBUG "[DEBUG] Reading from socket: \"".(join ("\\n",@array))."\".";
+    # Handle the multigraph one last time
+    if ($callback && $current_plugin) {
+	DEBUG "last callback->($current_plugin, " . Dumper(\@array) . ")";
+	$callback->($current_plugin, \@array);
+	@array = ();
+    }
+
+    # Return the remaining @array
     return \@array;
-}
-
-sub _merge_into_str_no_dup
-{
-	use List::MoreUtils qw(uniq);
-
-	my $str = shift;
-	my @a = uniq( split(/ /, $str), @_);
-
-	return join(" ", @a);
 }
 
 # Defines the URL::scheme for munin

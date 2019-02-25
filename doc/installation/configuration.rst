@@ -1,7 +1,7 @@
 .. _initial_configuration:
 
 =======================
- Initial configuration
+ Initial Configuration
 =======================
 
 Node
@@ -11,13 +11,15 @@ Plugins
 -------
 
 Decide which plugins to use. The munin node runs all plugins present
-in CONFDIR/plugins/
+in CONFDIR/plugins/ (usually /etc/munin/plugins).
 
 The quick auto-plug-and-play solution:
 
 .. code-block:: bash
 
  munin-node-configure --shell --families=contrib,auto | sh -x
+
+See :ref:`plugin-use` for more details.
 
 Access
 ------
@@ -71,16 +73,3 @@ Add some nodes to CONFDIR/munin.conf
 
 [node3.example.com]
   address 2001:db8::de:caf:bad
-
-Configure web server
-====================
-
-On the master, you need to configure a web server.
-
-If you have installed "munin" through distribution
-packages, a webserver may have been configured for you already.
-
-If you installed from source, there is a minimal configuration example
-in the "resources" directory in the source tarball.
-
-For a more complex example, see :ref:`example-webserver-apache`

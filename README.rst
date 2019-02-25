@@ -1,16 +1,30 @@
 This is Munin
 =============
 
+Munin the monitoring tool surveys all your computers and remembers what it saw.
+It presents all the information in graphs through a web interface.
+Its emphasis is on plug and play capabilities.
+After completing a installation a high number of monitoring plugins will be
+playing with no more effort.
+
+Additional plugins can be easily developed and contributed.
+See the `Plugin Gallery <http://gallery.munin-monitoring.org/>`_ for a wide
+range of more than a thousand community supported plugins.
+
 Munin is distributed under the GNU GPL version 2.  Munin is copyrighted
-2002-2017 by its various authors as identified in the source files.
+2002-2018 by its various authors as identified in the source files.
 
-Munin is homed at http://munin-monitoring.org/.  After you have completed 
-the INSTALL all the documentation can be found there.
 
-Information on developing Munin with GitHub, such as how branches are used
-and the version numbering scheme, can be found in `Munin's GitHub Wiki`__.
+Resources
+=========
 
-.. __ : https://github.com/munin-monitoring/munin/wiki/_pages
+* Website: http://munin-monitoring.org/
+* Documentation: http://guide.munin-monitoring.org/
+* `IRC channel <irc://irc.oftc.net/#munin>`_: ``#munin`` on OFTC
+* Mailing List: https://lists.sourceforge.net/lists/listinfo/munin-users
+* Plugin Gallery: http://gallery.munin-monitoring.org/
+* Live Demo (development): http://demo.munin-monitoring.org/
+
 
 Note to contributors
 --------------------
@@ -31,6 +45,12 @@ If you request a pull against ``master``, your pull will be automatically closed
 upon merge. If you request against one of the stable release branches, your pull will be
 automatically closed upon the next release.
 
+Information on developing Munin with GitHub, such as how branches are used
+and the version numbering scheme, can be found in `Munin's GitHub Wiki`__.
+
+.. __ : https://github.com/munin-monitoring/munin/wiki/_pages
+
+
 Building status
 ---------------
 
@@ -46,8 +66,9 @@ docs : |docs-latest|
 .. |build-master| image:: https://travis-ci.org/munin-monitoring/munin.svg?branch=master
    :target: https://travis-ci.org/munin-monitoring/munin
 
-.. |coverage-master| image:: https://coveralls.io/repos/munin-monitoring/munin/badge.svg?branch=master&service=github
+.. |coverage-master| image:: https://coveralls.io/repos/github/munin-monitoring/munin/badge.svg?branch=master
    :target: https://coveralls.io/github/munin-monitoring/munin?branch=master
+
 
 .. |docs-latest| image:: https://readthedocs.org/projects/munin/badge/?version=latest
    :target: http://guide.munin-monitoring.org/

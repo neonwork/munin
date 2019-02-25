@@ -74,11 +74,11 @@ CACHEAGE = 120
 CONFIG = '/etc/munin/ipmi'
 
 
-
 def normalize_sensor(name):
     name = name.lower().replace("-", "M").replace("+", "P")
     name = re.sub("[^a-z0-9A-Z]", "_", name)
     return name
+
 
 def parse_data(data):
     """
@@ -109,24 +109,26 @@ def parse_data(data):
             continue
         if line.startswith("Sensor ID"):
             label, data = line.split(":", 1)
-            idm = re.match(R"(.*) \((0x.*)\)", data)
+            idm = re.match(r"(.*) \((0x.*)\)", data)
             if not idm:
                 continue
             identifier = idm.group(1).strip()
-            cur_sensor = {"id" : idm.group(2)}
+            cur_sensor = {"id": idm.group(2)}
             sensors[identifier] = cur_sensor
         if not cur_sensor:
             continue
-        label, data = line.split(":", 1)
-        cur_sensor[label.strip().lower()] = data.strip()
+        if ":" in line:
+            label, data = line.split(":", 1)
+            cur_sensor[label.strip().lower()] = data.strip()
     return sensors
+
 
 def get_sensor_names():
     try:
         p = Popen(["ipmitool", "-I", "open", "sensor"], shell=False, stdout=PIPE)
     except OSError:
         return
-    data = p.stdout.readlines()
+    data = p.stdout.read().decode().splitlines()
 
     units = {}
     for k, u in UNITS_TO_SENSORS.items():
@@ -140,6 +142,7 @@ def get_sensor_names():
             lst.append(columns[0])
     return sensors
 
+
 def get_sensors():
     cache_filename = join(CACHEDIR, CACHEFILE)
     try:
@@ -148,7 +151,7 @@ def get_sensors():
         mtime = 0
     curtime = time()
 
-    if curtime-mtime > CACHEAGE:
+    if curtime - mtime > CACHEAGE:
         if not SENSORS:
             try:
                 p = Popen(["ipmitool", "-I", "open", "sensor"], shell=False, stdout=PIPE)
@@ -156,57 +159,62 @@ def get_sensors():
                 return
         else:
             try:
-                p = Popen(["ipmitool", "-I", "open", "sensor", "get", "--"] + SENSORS, shell=False, stdout=PIPE)
+                p = Popen(["ipmitool", "-I", "open", "sensor", "get", "--"] + SENSORS,
+                          shell=False, stdout=PIPE)
             except OSError:
                 return
-        data = p.stdout.read()
+        data = p.stdout.read().decode()
         try:
-            f = open(cache_filename, "w")
-            f.write(data)
+            with open(cache_filename, "w") as f:
+                f.write(data)
         except OSError:
             pass
     else:
-        data = open(cache_filename).read()
+        with open(cache_filename) as f:
+            data = f.read()
     return parse_data(data)
+
 
 def query_unit(arg):
     m = re.search('_u_(.*)$', arg)
     if not m:
-        raise RuntimeError("Could not figure which unit you want based on executable name")
+        sys.stderr.write("Could not determine which unit you want based on executable name. "
+                         "Acceptable values: {}\n".format(" / ".join(get_sensor_names())))
+        sys.exit(1)
     return m.group(1)
 
 
 UNITS_TO_SENSORS = {
-    'volts' : { 'title' : "Voltages",
-                'args' : '--base 1000',
-                'vlabel' : 'Volts',
-                'info' : "This graph shows the voltages as reported by IPMI",
-                'sensors' : [ 'Voltage 2', ],
-                },
-    'degrees_c' : { 'title' : "Temperature",
-                'args' : '--base 1000 -l 0',
-                'vlabel' : 'Degrees C',
-                'info' : "This graph shows the temperatures as reported by IPMI",
-                'sensors' : [ 'Ambient Temp', ],
-                },
-    'rpm' : { 'title' : "RPMs",
-                'args' : '--base 1000 -l 0',
-                'vlabel' : 'RPM',
-                'info' : "This graph shows the RPMs as reported by IPMI",
-                'sensors' : ['FAN 1 RPM', 'FAN 2 RPM', 'FAN 3 RPM', 'FAN 4 RPM',],
-                },
-    'amps' : { 'title' : "Amperes",
-                'args' : '--base 1000',
-                'vlabel' : 'Amperes',
-                'info' : "This graph shows the amperes as reported by IPMI",
-                'sensors' : ['Current 2'],
-                },
-    'watts' : { 'title' : "Watts",
-                'args' : '--base 1000',
-                'vlabel' : 'Watts',
-                'info' : "This graph shows the watts as reported by IPMI",
-                'sensors' : ['System Level',],
-                },
+    'volts': {
+        'title': "Voltages",
+        'args': '--base 1000',
+        'vlabel': 'Volts',
+        'info': "This graph shows the voltages as reported by IPMI",
+        'sensors': ['Voltage 2']},
+    'degrees_c': {
+        'title': "Temperature",
+        'args': '--base 1000 -l 0',
+        'vlabel': 'Degrees C',
+        'info': "This graph shows the temperatures as reported by IPMI",
+        'sensors': ['Ambient Temp']},
+    'rpm': {
+        'title': "RPMs",
+        'args': '--base 1000 -l 0',
+        'vlabel': 'RPM',
+        'info': "This graph shows the RPMs as reported by IPMI",
+        'sensors': ['FAN 1 RPM', 'FAN 2 RPM', 'FAN 3 RPM', 'FAN 4 RPM']},
+    'amps': {
+        'title': "Amperes",
+        'args': '--base 1000',
+        'vlabel': 'Amperes',
+        'info': "This graph shows the amperes as reported by IPMI",
+        'sensors': ['Current 2']},
+    'watts': {
+        'title': "Watts",
+        'args': '--base 1000',
+        'vlabel': 'Watts',
+        'info': "This graph shows the watts as reported by IPMI",
+        'sensors': ['System Level']},
 }
 
 
@@ -223,6 +231,7 @@ if access(CONFIG, R_OK):
         sensor_list = [s.strip() for s in sensors.split(',') if s.strip()]
         UNITS_TO_SENSORS[unit]['sensors'] = sensor_list
 
+
 SENSORS = []
 for v in UNITS_TO_SENSORS.values():
     SENSORS += v['sensors']
@@ -237,11 +246,20 @@ def config_unit(unit):
     print("graph_category sensors")
     print("graph_info", info['info'])
     for lbl in info['sensors']:
-        values = data[lbl]
+        try:
+            values = data[lbl]
+        except KeyError:
+            continue
         nname = normalize_sensor(lbl)
 
         print("%s.label %s" % (nname, lbl))
-        assertions = values['assertions enabled'].split()
+        # detect warning and critical ranges
+        try:
+            assertions = values['assertions enabled'].split()
+        except KeyError:
+            # Some devices do not provide assertions (e.g. power supplies).  Thus there is no way
+            # to guess their warning/critical ranges.  We can skip these.
+            continue
         warn_l = warn_u = crit_l = crit_u = ""
         if 'lcr-' in assertions:
             crit_l = values['lower critical'].replace("na", "")
@@ -250,39 +268,37 @@ def config_unit(unit):
         if 'ucr+' in assertions:
             crit_u = values['upper critical'].replace("na", "")
         if 'unc+' in assertions:
-            warn_u = values['Upper Non-Critical'].replace("na", "")
+            warn_u = values['upper non-critical'].replace("na", "")
 
-        #TODO add 'fans'
-        if unit == 'rpm':
-            warn = "%s:%s" % (warn_u, warn_l)
-            crit = "%s:%s" % (crit_u, crit_l)
-        else:
-            warn = "%s:%s" % (warn_l, warn_u)
-            crit = "%s:%s" % (crit_l, crit_u)
-
+        warn = "%s:%s" % (warn_l, warn_u)
+        crit = "%s:%s" % (crit_l, crit_u)
         if warn != ":":
             print("%s.warning %s" % (nname, warn))
         if crit != ":":
             print("%s.critical %s" % (nname, crit))
 
 
-
 def config():
     unit = query_unit(sys.argv[0])
     config_unit(unit)
+
 
 def report_unit(unit):
     info = UNITS_TO_SENSORS[unit]
     data = get_sensors()
     for lbl in info['sensors']:
         nname = normalize_sensor(lbl)
-        value = data[lbl]["sensor reading"].split()[0]
+        try:
+            value = data[lbl]["sensor reading"].split()[0]
+        except KeyError:
+            continue
         print("%s.value %s" % (nname, value))
 
 
 def report():
     unit = query_unit(sys.argv[0])
     report_unit(unit)
+
 
 def autoconf():
     data = get_sensors()
@@ -291,13 +307,14 @@ def autoconf():
     else:
         print("no (no ipmitool output)")
 
+
 def suggest():
     names = get_sensor_names()
     if not access(CONFIG, F_OK):
-        f = open(CONFIG, "w")
-        for key, sensors in names.items():
-            f.write("%s = %s\n" % (key, ",".join(sensors)))
-    for key in names:
+        with open(CONFIG, "w") as f:
+            for key, sensors in names.items():
+                f.write("%s = %s\n" % (key, ",".join(sensors)))
+    for key in names.keys():
         print("u_%s" % key)
 
 
@@ -305,10 +322,12 @@ def debug():
     print(SENSORS)
     data = get_sensors()
     for key, value in data.items():
-        print("%s : %s (%s - %s) [%s - %s] %s" % (key, value['sensor reading'],
-                                                  value['lower non-critical'], value['upper non-critical'],
-                                                  value['lower critical'], value['upper critical'],
-                                                  value['assertions enabled'],))
+        print("%s: %s (%s - %s) [%s - %s] %s" % (key, value['sensor reading'],
+                                                 value['lower non-critical'],
+                                                 value['upper non-critical'],
+                                                 value['lower critical'], value['upper critical'],
+                                                 value['assertions enabled']))
+
 
 def main():
     if len(sys.argv) > 1:
@@ -325,6 +344,7 @@ def main():
         debug()
     else:
         report()
+
 
 if __name__ == "__main__":
     main()

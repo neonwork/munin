@@ -20,6 +20,8 @@ If you have a GitHub_ account, you can even edit the pages online and
 send a pull request to contribute your work to the official Munin
 repository.
 
+.. _plugin-documentation:
+
 Plugin Documentation
 ====================
 
@@ -81,5 +83,5 @@ Guide`_.
        <http://sphinx-doc.org/rest.html>`_ for help on the syntax.
 
 .. _GitHub: https://github.com/
-.. _Munin Guide: https://munin.readthedocs.org/
+.. _Munin Guide: https://guide.munin-monitoring.org/
 .. _wiki: http://munin-monitoring.org/wiki/

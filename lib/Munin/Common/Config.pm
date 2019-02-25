@@ -31,6 +31,10 @@ my %legal = map { $_ => 1 } qw(
 	create_args
 	critical
 	dbdir
+	dburl
+	dbdriver
+	dbuser
+	dbpasswd
 	domain_order
 	draw
 	drawstyle
@@ -173,8 +177,8 @@ sub parse_config_from_file {
     eval {
         $self->parse_config($file);
     };
-    if ($EVAL_ERROR) {
-        croak "ERROR: Failed to parse config file '$config_file': $EVAL_ERROR";
+    if ($@) {
+        croak "ERROR: Failed to parse config file '$config_file': $@";
     }
 
     close $file

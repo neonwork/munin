@@ -105,6 +105,8 @@ package Munin::Plugin::Pgsql;
 use strict;
 use warnings;
 
+use English qw(-no_match_vars);
+
 use Munin::Plugin;
 
 =head2 Initialization
@@ -221,7 +223,7 @@ sub new {
         base      => 1000,
         category  => 'PostgreSQL',
         graphdraw => 'LINE1',
-        graphtype => 'GAUGE'
+        graphtype => 'GAUGE',
     );
 
     my $self = {
@@ -395,7 +397,7 @@ sub GetData {
         }
         foreach my $row (@$r) {
             my $l = Munin::Plugin::clean_fieldname($row->[0]);
-            print $l . ".value " . $row->[1] . "\n";
+            print "$l.value " . $row->[1] . "\n";
         }
         return;
     }
@@ -434,7 +436,7 @@ sub Process {
 }
 
 # Internal useful functions
-sub connect() {
+sub connect {
     my ($self, $noexit, $nowildcard) = @_;
 
     my $r = $self->_connect($nowildcard);
@@ -444,12 +446,12 @@ sub connect() {
     exit(1);
 }
 
-sub _connect() {
+sub _connect {
     my ($self, $nowildcard) = @_;
 
     return 1 if ($self->{dbh});
 
-    if (eval "require DBI; require DBD::Pg;") {
+    if (eval {require DBI; require DBD::Pg;}) {
 
         # By default, connect to database template1, because it exists on both old
         # and new versions of PostgreSQL, unless the database should be controlled
@@ -461,11 +463,15 @@ sub _connect() {
         # variables.
         my $dbname = "template1";
         $dbname = $self->{defaultdb}           if ($self->{defaultdb});
-        $dbname = $self->wildcard_parameter(0) if ($self->{paramdatabase} && !defined($nowildcard));
+        $dbname = $self->wildcard_parameter(0) if ($self->{paramdatabase} && !defined($nowildcard) && $self->wildcard_parameter(0));
         $dbname = $ENV{"PGDATABASE"}           if ($ENV{"PGDATABASE"});
-        $self->{dbh} = DBI->connect("DBI:Pg:dbname=$dbname", '', '', {pg_server_prepare => 0});
+        $self->{dbh} = DBI->connect("DBI:Pg:dbname=$dbname", '', '', {pg_server_prepare => 0, PrintError => 0});
         unless ($self->{dbh}) {
-            $self->{connecterror} = "$DBI::errstr";
+            my $err_str = "$DBI::errstr";
+            $err_str =~ s/[\r\n\t]/ /g;
+            $err_str =~ s/\h+/ /g;
+            $err_str =~ s/ $//;
+            $self->{connecterror} = $err_str;
             return 0;
         }
     }
@@ -511,11 +517,13 @@ sub get_version {
 
     return if (defined $self->{detected_version});
 
-    my $r = $self->runquery("SELECT version()");
+    my $r = $self->runquery("SHOW server_version");
     my $v = $r->[0]->[0];
     die "Unable to detect PostgreSQL version\n"
-        unless ($v =~ /^PostgreSQL (\d+)\.(\d+)(\.\d+(lts\d*)*|devel|beta\d+|rc\d+)\b/);
-    $self->{detected_version} = "$1.$2";
+        unless ($v =~ /^(\d+)\.(\d+).*\b/);
+    # from PostgreSQL 10 on only the major version is needed
+    # see https://www.postgresql.org/support/versioning/
+    $self->{detected_version} = ($1 >= 10) ? "$1" : "$1.$2";
 }
 
 sub get_versioned_query {
@@ -591,14 +599,14 @@ sub replace_wildcard_parameters {
 sub wildcard_parameter {
     my ($self, $paramnum) = @_;
 
-    return undef unless (defined $self->{basename});
+    return unless (defined $self->{basename});
 
     $paramnum = 0 unless (defined $paramnum);
     if ($0 =~ /$self->{basename}(.*)$/) {
 
         # If asking for first parameter, and there's no filter on it,
         # return undef.
-        return undef if ($1 eq "ALL" && $paramnum == 0);
+        return if ($1 eq "ALL" && $paramnum == 0);
 
         # If asking for unsplit, return that (internal use only, really)
         return $1 if ($paramnum == -1);

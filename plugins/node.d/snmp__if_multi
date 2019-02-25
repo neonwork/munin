@@ -118,16 +118,12 @@ around.
 
 =head1 AUTHOR
 
-Copyright (C) 2004-2010 Jimmy Olsen, Dagfinn Ilmari Mannsaaker,
-Nicolai Langfeldt, Redpill Linpro AS and others.
+  Copyright (C) 2006-2010 Nicolai Langfeldt
+  Copyright (C) 2004-2005 Dagfinn Ilmari Mannsåker
+  Copyright (C) 2004 Jimmy Olsen
 
-Original snmp__if_ plugin: Copyright (C) 2004-2009 Jimmy Olsen, Dagfinn
-Ilmari Mannsaaker.
-
-Initial SNMPv3 support by "Confusedhacker".
-
-Documentation, porting to Munin::Plugin::SNMP and
-further grooming by Nicolai Langfeldt.
+Based on the original snmp__if_ plugin written by Jimmy Olsen and
+Dagfinn Ilmari Mannsåker.
 
 Reworked to snmp__if_multi by Nicolai Langfeldt.
 
@@ -525,7 +521,7 @@ sub do_preprocess {
     my @mediatypes = split(/[ ,]+/,$mediatypes);
 
     # Hash of numerical media types the user finds interesting.
-    my $mediatype={}; 
+    my $mediatype={};
 
     if ($mediatypes eq 'ALL') {
 	$mediatype = undef;
@@ -663,7 +659,7 @@ sub do_config_if {
     print "recv.cdef recv,8,*\n";
     print "recv.max $speed\n" if $speed;
     print "recv.min 0\n";
-    print "recv.warning ", (-$warn), "\n" if defined $warn;
+    print "recv.warning $warn\n" if defined $warn;
     print "send.label bps\n";
     print "send.type DERIVE\n";
     print "send.negative recv\n";
@@ -696,7 +692,7 @@ sub do_config_if {
 
 
 sub do_fetch_root {
-    # Construct root graphs fro the if_bytes and if_error spaces
+    # Construct root graphs for the if_bytes and if_error spaces
 
     my $in = 0;
     my $out = 0;
